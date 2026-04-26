@@ -149,6 +149,8 @@ pub enum DataKey {
     ExtensionVote(Address),
     /// Partial refund amount for a specific address
     PartialRefund(Address),
+    /// Insurance fee paid by a specific contributor
+    InsuranceFee(Address),
 }
 
 /// Recurring contribution plan.
@@ -185,4 +187,18 @@ pub struct ExtensionProposal {
     pub voting_ends_at: u64,
     /// Whether the proposal has been executed
     pub executed: bool,
+}
+
+/// Insurance configuration for campaign protection.
+///
+/// Defines optional insurance parameters for contributor protection.
+#[derive(Clone)]
+#[contracttype]
+pub struct InsuranceConfig {
+    /// Insurance fee in basis points (e.g., 100 = 1%)
+    pub fee_bps: u32,
+    /// Insurance provider address
+    pub provider: Address,
+    /// Whether insurance is enabled for this campaign
+    pub enabled: bool,
 }
