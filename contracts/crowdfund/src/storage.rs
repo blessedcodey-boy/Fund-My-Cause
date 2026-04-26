@@ -10,6 +10,9 @@ pub const CONTRACT_VERSION: u32 = 4;
 /// Maximum number of updates per campaign
 pub const MAX_UPDATES: u32 = 100;
 
+/// Maximum number of milestones per campaign
+pub const MAX_MILESTONES: u32 = 20;
+
 // ── Storage Keys ──────────────────────────────────────────────────────────────
 /// Storage key for campaign creator address
 pub const KEY_CREATOR: Symbol = soroban_sdk::symbol_short!("CREATOR");

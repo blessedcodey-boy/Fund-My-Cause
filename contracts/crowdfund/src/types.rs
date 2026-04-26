@@ -95,6 +95,18 @@ pub struct CampaignUpdate {
     pub timestamp: u64,
 }
 
+/// Milestone tracking for campaigns.
+#[derive(Clone)]
+#[contracttype]
+pub struct Milestone {
+    /// Target amount in stroops
+    pub amount: i128,
+    /// Milestone description
+    pub description: String,
+    /// Whether this milestone has been reached
+    pub reached: bool,
+}
+
 /// Storage key variants for contract data.
 ///
 /// Used to organize persistent and instance storage in the contract.
@@ -113,4 +125,6 @@ pub enum DataKey {
     AcceptedTokens,
     /// Campaign updates vector
     Updates,
+    /// Milestones vector
+    Milestones,
 }

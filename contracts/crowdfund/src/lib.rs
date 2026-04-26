@@ -7,8 +7,8 @@ mod storage;
 mod types;
 
 pub use errors::ContractError;
-pub use storage::{CONTRACT_VERSION, KEY_ADMIN, KEY_CONTRIBS, KEY_CREATOR, KEY_DEADLINE, KEY_DESC, KEY_GOAL, KEY_MIN, KEY_PLATFORM, KEY_SOCIAL, KEY_STATUS, KEY_TITLE, KEY_TOKEN, KEY_TOTAL, MAX_UPDATES};
-pub use types::{CampaignInfo, CampaignStats, DataKey, PlatformConfig, Status, CampaignUpdate};
+pub use storage::{CONTRACT_VERSION, KEY_ADMIN, KEY_CONTRIBS, KEY_CREATOR, KEY_DEADLINE, KEY_DESC, KEY_GOAL, KEY_MIN, KEY_PLATFORM, KEY_SOCIAL, KEY_STATUS, KEY_TITLE, KEY_TOKEN, KEY_TOTAL, MAX_UPDATES, MAX_MILESTONES};
+pub use types::{CampaignInfo, CampaignStats, DataKey, PlatformConfig, Status, CampaignUpdate, Milestone};
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -628,6 +628,64 @@ impl CrowdfundContract {
             .persistent()
             .get(&DataKey::Updates)
             .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    // ── Milestones ────────────────────────────────────────────────────────────
+
+    /// Initializes campaign milestones.
+    ///
+    /// Only the creator can set milestones. Limited to MAX_MILESTONES per campaign.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `milestones` - Vector of Milestone structs
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(ContractError::NotActive)` if campaign is not Active
+    /// * `Err(ContractError::Overflow)` if milestone limit exceeded
+    pub fn set_milestones(env: Env, milestones: Vec<Milestone>) -> Result<(), ContractError> {
+        let creator: Address = env.storage().instance().get(&KEY_CREATOR).unwrap();
+        creator.require_auth();
+
+        let status: Status = env.storage().instance().get(&KEY_STATUS).unwrap();
+        if status != Status::Active {
+            return Err(ContractError::NotActive);
+        }
+
+        if milestones.len() > MAX_MILESTONES {
+            return Err(ContractError::Overflow);
+        }
+
+        env.storage().persistent().set(&DataKey::Milestones, &milestones);
+        env.storage().persistent().extend_ttl(&DataKey::Milestones, 100, 100);
+        env.events().publish(("campaign", "milestones_set"), ());
+        Ok(())
+    }
+
+    /// Retrieves campaign milestones with updated reached status.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    ///
+    /// # Returns
+    /// Vector of Milestone entries with current reached status
+    pub fn get_milestones(env: Env) -> Vec<Milestone> {
+        let mut milestones: Vec<Milestone> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Milestones)
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let total: i128 = env.storage().instance().get(&KEY_TOTAL).unwrap_or(0);
+
+        for i in 0..milestones.len() {
+            let mut milestone = milestones.get(i).unwrap();
+            milestone.reached = total >= milestone.amount;
+            milestones.set(i, milestone);
+        }
+
+        milestones
     }
 
     // ── View functions ────────────────────────────────────────────────────────
