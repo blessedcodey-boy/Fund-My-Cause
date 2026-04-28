@@ -1,5 +1,52 @@
+//! # Fund-My-Cause Crowdfund Contract
+//!
+//! A Soroban smart contract for decentralised crowdfunding on the Stellar network.
+//!
+//! ## Overview
+//!
+//! Each deployed instance of [`CrowdfundContract`] represents a single crowdfunding
+//! campaign. The contract lifecycle is:
+//!
+//! 1. **Initialise** — creator calls [`initialize`](CrowdfundContract::initialize) once.
+//! 2. **Contribute** — backers call [`contribute`](CrowdfundContract::contribute) before the deadline.
+//! 3. **Withdraw** — if goal is met after deadline, creator calls [`withdraw`](CrowdfundContract::withdraw).
+//! 4. **Refund** — if goal is not met (or campaign is cancelled), contributors call
+//!    [`refund_single`](CrowdfundContract::refund_single) to reclaim their funds.
+//!
+//! ## Advanced Features
+//!
+//! - **Recurring contributions** — [`setup_recurring`](CrowdfundContract::setup_recurring) /
+//!   [`execute_recurring`](CrowdfundContract::execute_recurring)
+//! - **Delegation** — [`delegate_contribution`](CrowdfundContract::delegate_contribution) /
+//!   [`contribute_on_behalf`](CrowdfundContract::contribute_on_behalf)
+//! - **Deadline extension voting** — [`propose_extension`](CrowdfundContract::propose_extension) /
+//!   [`vote_on_extension`](CrowdfundContract::vote_on_extension) /
+//!   [`execute_extension`](CrowdfundContract::execute_extension)
+//! - **Whitelist / Blacklist** — [`add_to_whitelist`](CrowdfundContract::add_to_whitelist) /
+//!   [`add_to_blacklist`](CrowdfundContract::add_to_blacklist)
+//! - **Partial refunds** — [`refund_partial`](CrowdfundContract::refund_partial)
+//! - **Emergency withdrawal** — [`initiate_emergency_withdrawal`](CrowdfundContract::initiate_emergency_withdrawal) /
+//!   [`execute_emergency_withdrawal`](CrowdfundContract::execute_emergency_withdrawal)
+//! - **Insurance** — [`enable_insurance`](CrowdfundContract::enable_insurance)
+//! - **Vesting** — configurable cliff + linear vesting on withdrawal
+//! - **Matching** — sponsor-funded contribution matching
+//!
+//! ## Storage Model
+//!
+//! - **Instance storage** — campaign-wide state (status, goal, deadline, totals).
+//! - **Persistent storage** — per-contributor data (balances, plans, flags).
+//!
+//! ## Error Handling
+//!
+//! All mutating functions return `Result<_, ContractError>`. See [`errors::ContractError`]
+//! for the full list of error codes.
+//!
+//! ## Events
+//!
+//! Every state-changing function publishes a structured event. See the `Event*` types
+//! in [`types`] for the full list of event payloads.
+
 #![no_std]
-#![allow(missing_docs)]
 #![allow(clippy::too_many_arguments)]
 
 mod errors;
