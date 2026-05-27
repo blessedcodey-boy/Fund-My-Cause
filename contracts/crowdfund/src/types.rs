@@ -312,6 +312,14 @@ pub enum DataKey {
     ContributorTier(Address),
     /// Full contribution history for a specific contributor
     ContributionHistory(Address),
+    /// Required number of approvals for emergency withdrawal multi-sig
+    EmergencyApproversRequired,
+    /// Running approval count for the active emergency withdrawal session
+    EmergencyApprovalCount,
+    /// Session token (lock_until timestamp) that a specific address last approved
+    EmergencyApproval(Address),
+    /// Authorized approver addresses for emergency multi-sig
+    EmergencyApproversList,
 }
 
 /// Recurring contribution plan.
@@ -703,89 +711,64 @@ pub struct EventInsurancePayout {
     pub amount: i128,
 }
 
-// ── Issue #416 ────────────────────────────────────────────────────────────────
-
-/// Emitted when the campaign is cancelled by its creator.
+/// Emitted when emergency withdrawal multi-sig is configured.
 ///
-/// After this event contributors may call `refund_single` or `refund_batch`
-/// to reclaim their tokens regardless of the deadline.
-///
-/// Event topic: `("campaign", "cancelled")`
+/// Event topic: `("campaign", "multisig_configured")`
 #[derive(Clone)]
 #[contracttype]
-pub struct EventCancelled {
-    /// Campaign creator who authorised the cancellation
-    pub creator: Address,
-    /// Total amount held in the contract at the time of cancellation
-    pub total_raised: i128,
+pub struct EventMultiSigConfigured {
+    /// Minimum number of approvals required to execute the emergency withdrawal
+    pub required_approvals: u32,
+    /// Total number of authorised approver addresses
+    pub approver_count: u32,
 }
 
-// ── Issue #417 ────────────────────────────────────────────────────────────────
-
-/// Emitted when the campaign is paused by the admin.
+/// Emitted when an emergency withdrawal approval is submitted by an approver.
 ///
-/// While paused, new contributions are rejected with `CampaignPaused`.
-///
-/// Event topic: `("campaign", "paused")`
+/// Event topic: `("campaign", "emergency_approved")`
 #[derive(Clone)]
 #[contracttype]
-pub struct EventPaused {
-    /// Ledger timestamp at the moment the campaign was paused
-    pub timestamp: u64,
+pub struct EventEmergencyApproved {
+    /// Address of the approver who submitted this approval
+    pub approver: Address,
+    /// Running approval count for the current session after this approval
+    pub approval_count: u32,
 }
 
-/// Emitted when a paused campaign is resumed (returned to Active).
+/// Emitted when a contribution matching pool is configured.
 ///
-/// Contributions are accepted again immediately after this event.
-///
-/// Event topic: `("campaign", "resumed")`
+/// Event topic: `("campaign", "matching_setup")`
 #[derive(Clone)]
 #[contracttype]
-pub struct EventResumed {
-    /// Ledger timestamp at the moment the campaign was resumed
-    pub timestamp: u64,
+pub struct EventMatchingSetup {
+    /// Sponsor address funding the matching pool
+    pub sponsor: Address,
+    /// Match ratio in basis points (e.g. 10 000 = 1 : 1)
+    pub match_ratio: u32,
+    /// Maximum total matching amount in stroops
+    pub max_match: i128,
 }
 
-// ── Issue #418 ────────────────────────────────────────────────────────────────
-
-/// Emitted when the creator configures reward tiers for the campaign.
+/// Emitted when a campaign is initialised via a template.
 ///
-/// Event topic: `("campaign", "tiers_set")`
+/// Event topic: `("campaign", "template_applied")`
 #[derive(Clone)]
 #[contracttype]
-pub struct EventTiersSet {
-    /// Number of tiers configured
-    pub tier_count: u32,
+pub struct EventTemplateApplied {
+    /// Template type used to initialise the campaign
+    pub template_type: TemplateType,
+    /// Minimum contribution derived from the template
+    pub suggested_min: i128,
 }
 
-/// Emitted when a contributor reaches a new reward tier.
+/// Emitted when the campaign category is updated by the creator.
 ///
-/// Event topic: `("campaign", "tier_assigned")`
+/// Event topic: `("campaign", "category_updated")`
 #[derive(Clone)]
 #[contracttype]
-pub struct EventTierAssigned {
-    pub contributor: Address,
-    /// Name of the newly reached tier
-    pub tier_name: String,
-    /// Minimum amount threshold of that tier
-    pub min_amount: i128,
-}
-
-// ── Issue #419 ────────────────────────────────────────────────────────────────
-
-/// Emitted when a contribution record is appended to a contributor's history.
-///
-/// Provides a detailed, timestamped audit trail of every individual contribution.
-///
-/// Event topic: `("campaign", "contribution_recorded")`
-#[derive(Clone)]
-#[contracttype]
-pub struct EventContributionRecorded {
-    pub contributor: Address,
-    /// Amount of this specific contribution
-    pub amount: i128,
-    /// Ledger timestamp when the contribution was recorded
-    pub timestamp: u64,
-    /// Contributor's cumulative total after this contribution
-    pub running_total: i128,
+pub struct EventCategoryUpdated {
+    /// Previous category before the update
+    pub old_category: Category,
+    /// New category after the update
+    pub new_category: Category,
 }
