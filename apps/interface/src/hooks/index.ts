@@ -22,3 +22,8 @@ export { useRecommendations } from "./useRecommendations";
 export { useComments } from "./useComments";
 export { useBreakpoint } from "./useBreakpoint";
 export { useFocusTrap } from "./useFocusTrap";
+export { useInfiniteScroll } from "./useInfiniteScroll";
+export type {
+  UseInfiniteScrollOptions,
+  UseInfiniteScrollReturn,
+} from "./useInfiniteScroll";
