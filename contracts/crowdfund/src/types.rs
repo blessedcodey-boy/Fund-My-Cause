@@ -20,6 +20,8 @@ pub enum Status {
     Cancelled,
     /// Campaign is temporarily paused (no new contributions allowed)
     Paused,
+    /// Campaign has been archived for historical reference
+    Archived,
 }
 
 /// Campaign statistics snapshot.
@@ -914,80 +916,23 @@ pub struct EventContributionRecorded {
     pub running_total: i128,
 }
 
-/// Emitted when a campaign is cloned from an existing campaign.
+/// Emitted when a campaign is archived.
 ///
-/// Event topic: `("campaign", "cloned")`
+/// Event topic: `("campaign", "archived")`
 #[derive(Clone)]
 #[contracttype]
-pub struct EventCampaignCloned {
-    pub original_creator: Address,
-    pub new_creator: Address,
-    pub new_goal: i128,
-    pub new_deadline: u64,
+pub struct EventArchived {
+    pub creator: Address,
+    pub total_raised: i128,
+    pub timestamp: u64,
 }
 
-/// Reward configuration for contributor incentives.
+/// Emitted when campaign ownership is transferred to a new address.
 ///
-/// Defines how rewards are minted and distributed to contributors.
+/// Event topic: `("campaign", "ownership_transferred")`
 #[derive(Clone)]
 #[contracttype]
-pub struct RewardConfig {
-    /// Token address for reward minting
-    pub reward_token: Address,
-    /// Reward amount per contribution unit (stroops)
-    pub reward_per_unit: i128,
-    /// Whether rewards are enabled
-    pub enabled: bool,
-}
-
-/// Search index entry for campaign discovery.
-///
-/// Stores searchable metadata for a campaign to enable efficient discovery.
-#[derive(Clone)]
-#[contracttype]
-pub struct SearchIndexEntry {
-    /// Campaign title (indexed)
-    pub title: String,
-    /// Campaign description (indexed)
-    pub description: String,
-    /// Campaign category
-    pub category: Category,
-    /// Campaign visibility
-    pub visibility: Visibility,
-    /// Creation timestamp
-    pub created_at: u64,
-    /// Current campaign status
-    pub status: Status,
-}
-
-/// Emitted when rewards are configured for a campaign.
-///
-/// Event topic: `("campaign", "rewards_configured")`
-#[derive(Clone)]
-#[contracttype]
-pub struct EventRewardsConfigured {
-    pub reward_token: Address,
-    pub reward_per_unit: i128,
-}
-
-/// Emitted when rewards are distributed to a contributor.
-///
-/// Event topic: `("campaign", "rewards_distributed")`
-#[derive(Clone)]
-#[contracttype]
-pub struct EventRewardsDistributed {
-    pub contributor: Address,
-    pub contribution_amount: i128,
-    pub reward_amount: i128,
-}
-
-/// Emitted when a campaign is indexed for search.
-///
-/// Event topic: `("campaign", "indexed")`
-#[derive(Clone)]
-#[contracttype]
-pub struct EventCampaignIndexed {
-    pub title: String,
-    pub category: Category,
-    pub visibility: Visibility,
+pub struct EventOwnershipTransferred {
+    pub previous_owner: Address,
+    pub new_owner: Address,
 }
