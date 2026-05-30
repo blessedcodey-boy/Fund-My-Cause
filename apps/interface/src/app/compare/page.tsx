@@ -4,15 +4,27 @@ import React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/layout/Navbar";
-import { ProgressBar } from "@/components/ui/ProgressBar";
+import { CampaignSelector } from "@/components/ui/CampaignSelector";
+import { ComparisonTable } from "@/components/ui/ComparisonTable";
+import { ComparisonChart } from "@/components/ui/ComparisonChart";
 import { useComparison } from "@/context/ComparisonContext";
 import { ALL_CAMPAIGNS } from "@/lib/campaigns";
-import { formatXlm } from "@/lib/price";
-import { Share2, X, ArrowLeft } from "lucide-react";
+import {
+  Share2,
+  X,
+  ArrowLeft,
+  GitCompare,
+  BarChart3,
+  Table2,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+
+type ViewMode = "table" | "chart" | "both";
 
 export default function ComparePage() {
   const { selected, clear, toggle } = useComparison();
   const router = useRouter();
+  const [viewMode, setViewMode] = React.useState<ViewMode>("both");
 
   const campaigns = selected
     .map((id) => ALL_CAMPAIGNS.find((c) => c.id === id))
@@ -26,124 +38,141 @@ export default function ComparePage() {
 
   if (campaigns.length === 0) {
     return (
-      <main className="min-h-screen bg-gray-950 text-white">
+      <main className="min-h-screen bg-[var(--color-background)] text-[var(--color-text-primary)]">
         <Navbar />
         <div className="max-w-4xl mx-auto px-6 py-24 text-center">
-          <p className="text-gray-400 mb-4">No campaigns selected for comparison.</p>
-          <Link href="/campaigns" className="text-indigo-400 hover:text-indigo-300 underline">
-            Browse campaigns
-          </Link>
+          <div className="mb-8">
+            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center">
+              <GitCompare
+                size={32}
+                className="text-[var(--color-text-muted)]"
+              />
+            </div>
+            <h1 className="text-2xl font-bold mb-3 text-[var(--color-text-primary)]">
+              Compare Campaigns
+            </h1>
+            <p className="text-[var(--color-text-muted)] mb-6 max-w-md mx-auto">
+              Select up to 4 campaigns to compare their funding progress,
+              goals, and performance side by side.
+            </p>
+          </div>
+
+          {/* Inline campaign selector for empty state */}
+          <div className="flex justify-center mb-6">
+            <CampaignSelector />
+          </div>
+
+          <p className="text-sm text-[var(--color-text-muted)]">
+            or{" "}
+            <Link
+              href="/campaigns"
+              className="text-[var(--color-brand)] hover:text-[var(--color-brand-hover)] underline transition"
+            >
+              browse campaigns
+            </Link>{" "}
+            and use the compare checkbox
+          </p>
         </div>
       </main>
     );
   }
 
-  const rows: { label: string; render: (c: typeof ALL_CAMPAIGNS[0]) => React.ReactNode }[] = [
-    { label: "Status", render: (c) => c.status },
-    {
-      label: "Raised",
-      render: (c) => formatXlm(c.raised, null),
-    },
-    {
-      label: "Goal",
-      render: (c) => formatXlm(c.goal, null),
-    },
-    {
-      label: "Progress",
-      render: (c) => {
-        const pct = c.goal > 0 ? (c.raised / c.goal) * 100 : 0;
-        return (
-          <div className="space-y-1">
-            <ProgressBar progress={pct} />
-            <span className="text-xs text-gray-400">{pct.toFixed(1)}%</span>
-          </div>
-        );
-      },
-    },
-    {
-      label: "Deadline",
-      render: (c) => new Date(c.deadline).toLocaleDateString(),
-    },
-    {
-      label: "Contributors",
-      render: (c) => c.contributorCount ?? "—",
-    },
-    {
-      label: "Token",
-      render: (c) => c.token,
-    },
+  const VIEW_MODES: { label: string; value: ViewMode; icon: React.ReactNode }[] = [
+    { label: "Both", value: "both", icon: null },
+    { label: "Table", value: "table", icon: <Table2 size={14} /> },
+    { label: "Chart", value: "chart", icon: <BarChart3 size={14} /> },
   ];
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white">
+    <main className="min-h-screen bg-[var(--color-background)] text-[var(--color-text-primary)]">
       <Navbar />
-      <div className="max-w-6xl mx-auto px-6 py-12">
+      <div className="max-w-7xl mx-auto px-6 py-12">
+        {/* Header */}
         <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <button onClick={() => router.back()} className="text-gray-400 hover:text-white transition">
+            <button
+              onClick={() => router.back()}
+              aria-label="Go back"
+              className="p-2 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-elevated)] transition"
+            >
               <ArrowLeft size={20} />
             </button>
-            <h1 className="text-2xl font-bold">Compare Campaigns</h1>
-            <span className="text-sm text-gray-500">({campaigns.length} selected)</span>
+            <div>
+              <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">
+                Compare Campaigns
+              </h1>
+              <p className="text-sm text-[var(--color-text-muted)]">
+                {campaigns.length} of 4 campaigns selected
+              </p>
+            </div>
           </div>
-          <div className="flex gap-2">
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Campaign selector */}
+            <CampaignSelector />
+
+            {/* View mode toggle */}
+            <div className="flex rounded-xl border border-[var(--color-border)] overflow-hidden">
+              {VIEW_MODES.map((mode) => (
+                <button
+                  key={mode.value}
+                  onClick={() => setViewMode(mode.value)}
+                  aria-pressed={viewMode === mode.value}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition",
+                    viewMode === mode.value
+                      ? "bg-[var(--color-brand)] text-white"
+                      : "bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]",
+                  )}
+                >
+                  {mode.icon}
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Actions */}
             <button
               onClick={handleShare}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-sm transition"
+              aria-label="Share comparison"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--color-surface-elevated)] hover:bg-[var(--color-border-subtle)] text-sm text-[var(--color-text-secondary)] transition"
             >
               <Share2 size={14} /> Share
             </button>
             <button
               onClick={clear}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-sm transition"
+              aria-label="Clear all campaigns"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--color-surface-elevated)] hover:bg-[var(--color-border-subtle)] text-sm text-[var(--color-text-secondary)] transition"
             >
               <X size={14} /> Clear
             </button>
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-2xl border border-gray-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800">
-                <th className="text-left px-4 py-3 text-gray-500 font-medium w-32">Metric</th>
-                {campaigns.map((c) => (
-                  <th key={c.id} className="px-4 py-3 text-left">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-semibold text-white">{c.title}</span>
-                      <button
-                        onClick={() => toggle(c.id)}
-                        aria-label={`Remove ${c.title} from comparison`}
-                        className="text-gray-600 hover:text-gray-300 transition flex-shrink-0"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr key={row.label} className={i % 2 === 0 ? "bg-gray-900/40" : ""}>
-                  <td className="px-4 py-3 text-gray-500 font-medium">{row.label}</td>
-                  {campaigns.map((c) => (
-                    <td key={c.id} className="px-4 py-3 text-gray-200">
-                      {row.render(c)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* Content */}
+        <div className="space-y-8">
+          {(viewMode === "table" || viewMode === "both") && (
+            <ComparisonTable
+              campaigns={campaigns}
+              onRemove={(id) => toggle(id)}
+            />
+          )}
+
+          {(viewMode === "chart" || viewMode === "both") && (
+            <ComparisonChart campaigns={campaigns} />
+          )}
         </div>
 
-        <p className="text-xs text-gray-600 mt-4">
+        {/* Footer hint */}
+        <p className="text-xs text-[var(--color-text-muted)] mt-8 text-center">
           Select up to 4 campaigns from the{" "}
-          <Link href="/campaigns" className="text-indigo-400 hover:underline">
+          <Link
+            href="/campaigns"
+            className="text-[var(--color-brand)] hover:underline"
+          >
             campaigns page
           </Link>{" "}
-          to compare.
+          or use the &quot;Add Campaign&quot; button above to compare.
         </p>
       </div>
     </main>
