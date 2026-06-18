@@ -88,9 +88,6 @@ pub enum ContractError {
     NoRewardsConfigured = 38,
     /// Caller is not the campaign creator
     NotCreator = 39,
-}
-    /// Caller is not the campaign creator
-    NotCreator = 39,
     /// Milestone not found
     MilestoneNotFound = 40,
     /// Milestone already reached
@@ -105,4 +102,22 @@ pub enum ContractError {
     DisputeVotingEnded = 45,
     /// Analytics not available
     AnalyticsNotAvailable = 46,
+    /// Governance proposal not found
+    GovernanceProposalNotFound = 47,
+    /// Already voted on this governance proposal
+    GovernanceAlreadyVoted = 48,
+    /// Voting period for governance proposal has ended
+    GovernanceVotingEnded = 49,
+    /// Not enough approvals to execute governance proposal
+    GovernanceNotEnoughApprovals = 50,
+    /// Governance timelock has not yet expired
+    GovernanceTimelockPending = 51,
+    /// Address is not a designated governor
+    GovernanceNotGovernor = 52,
+    /// Governance proposal is not in a ready state
+    GovernanceProposalNotReady = 53,
+    /// Governance proposal has already been executed
+    GovernanceAlreadyExecuted = 54,
+    /// Contract is emergency paused by governance
+    GovernanceEmergencyPaused = 55,
 }
