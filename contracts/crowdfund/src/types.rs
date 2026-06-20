@@ -337,6 +337,10 @@ pub enum DataKey {
     // #460: per-function performance stats
     /// Performance stats for a named function
     PerfStats(String),
+    /// Indexed contributor address — key is the contributor's insertion order (0-based).
+    /// Replaces the monolithic KEY_CONTRIBS Vec to give O(1) per-write cost and
+    /// O(page_size) pagination instead of O(n) reads of the full list.
+    ContributorIndex(u32),
 }
 
 /// Recurring contribution plan.
