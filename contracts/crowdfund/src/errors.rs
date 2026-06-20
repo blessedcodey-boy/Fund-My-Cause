@@ -88,9 +88,6 @@ pub enum ContractError {
     NoRewardsConfigured = 38,
     /// Caller is not the campaign creator
     NotCreator = 39,
-}
-    /// Caller is not the campaign creator
-    NotCreator = 39,
     /// Milestone not found
     MilestoneNotFound = 40,
     /// Milestone already reached
