@@ -1,9 +1,12 @@
 #![cfg(test)]
 
+//! Invariant testing: properties that must always hold true
+
 mod common;
 
 use soroban_sdk::{Address, Env};
 use crate::common::{setup, Campaign};
+use proptest::prelude::*;
 
 #[test]
 fn test_invariant_total_raised_matches_sum_of_contributions() {
@@ -31,6 +34,56 @@ fn test_invariant_total_raised_matches_sum_of_contributions() {
         .map(|addr| c.client.contribution(addr))
         .sum();
     assert_eq!(reported_sum, expected_total);
+    assert_eq!(reported_sum, c.client.total_raised());
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100))]
+
+    #[test]
+    fn test_invariant_total_raised_never_negative(
+        amounts in prop::collection::vec(1i128..10_000i128, 1..20),
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let c = setup(&env, 1_000_000_000i128, 1_000_000u64, None);
+        env.ledger().set_timestamp(500);
+
+        for amt in &amounts {
+            let contrib = Address::generate(&env);
+            c.token_admin.mint(&contrib, amt);
+            let _ = c.client.try_contribute(&contrib, amt, &c.token_id, &None);
+        }
+
+        let total = c.client.total_raised();
+        assert!(total >= 0, "total_raised must never be negative");
+    }
+
+    #[test]
+    fn test_invariant_individual_contribution_never_negative(
+        amounts in prop::collection::vec(1i128..10_000i128, 1..20),
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let c = setup(&env, 1_000_000_000i128, 1_000_000u64, None);
+        env.ledger().set_timestamp(500);
+
+        let contributors: Vec<Address> = (0..amounts.len())
+            .map(|_| Address::generate(&env))
+            .collect();
+
+        for (contrib, &amt) in contributors.iter().zip(amounts.iter()) {
+            c.token_admin.mint(contrib, &amt);
+            let _ = c.client.try_contribute(contrib, &amt, &c.token_id, &None);
+        }
+
+        for contrib in &contributors {
+            let contribution = c.client.contribution(contrib);
+            assert!(contribution >= 0, "Individual contribution must never be negative");
+        }
+    }
 }
 
 #[test]
@@ -116,4 +169,58 @@ fn test_invariant_contract_balance_zero_after_successful_withdraw() {
     c.client.withdraw();
 
     assert_eq!(c.token.balance(&c.contract_id), 0);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100))]
+
+    #[test]
+    fn test_invariant_total_equals_sum_after_random_ops(
+        amounts in prop::collection::vec(1i128..50_000i128, 1..15),
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let c = setup(&env, 1_000_000_000i128, 1_000_000u64, None);
+        env.ledger().set_timestamp(500);
+
+        let mut contributors = Vec::new();
+        for &amt in &amounts {
+            let contrib = Address::generate(&env);
+            contributors.push(contrib.clone());
+            c.token_admin.mint(&contrib, &amt);
+            let _ = c.client.try_contribute(&contrib, &amt, &c.token_id, &None);
+        }
+
+        let total = c.client.total_raised();
+        let sum: i128 = contributors
+            .iter()
+            .map(|addr| c.client.contribution(addr))
+            .sum();
+
+        assert_eq!(total, sum);
+    }
+
+    #[test]
+    fn test_invariant_no_funds_lost_before_deadline(
+        amounts in prop::collection::vec(1i128..50_000i128, 1..15),
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let c = setup(&env, 1_000_000_000i128, 1_000_000u64, None);
+        env.ledger().set_timestamp(500);
+
+        let mut sum: i128 = 0;
+        for &amt in &amounts {
+            let contrib = Address::generate(&env);
+            c.token_admin.mint(&contrib, &amt);
+            if c.client.try_contribute(&contrib, &amt, &c.token_id, &None).is_ok() {
+                sum += amt;
+            }
+        }
+
+        let contract_balance = c.token.balance(&c.contract_id);
+        assert!(contract_balance >= sum);
+    }
 }
