@@ -71,6 +71,8 @@ pub use storage::{
     KEY_DEBUG_SNAPSHOT,
     // #460
     KEY_PERF_THRESHOLD, KEY_PERF_STATS,
+    // Governance
+    KEY_GOVERNANCE_CONFIG, KEY_GOVERNANCE_NONCE, KEY_EMERGENCY_PAUSE,
 };
 pub use types::{
     CampaignAnalytics,
@@ -185,6 +187,15 @@ pub use types::{
     FunctionPerfStats,
     EventExecutionRecorded,
     EventPerfAlert,
+    // Governance
+    GovernanceConfig,
+    GovernanceProposal,
+    EventGovernanceProposed,
+    EventGovernanceVoted,
+    EventGovernanceExecuted,
+    EventGovernanceConfigUpdated,
+    EventGovernanceEmergencyPaused,
+    EventGovernanceEmergencyResumed,
 };
 pub use validation::*;
 
@@ -4635,6 +4646,456 @@ impl CrowdfundContract {
         }
 
         Err(ContractError::DisputeNotFound)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Multi-Sig Governance Functions
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Initializes multi-sig governance for platform configuration changes.
+    ///
+    /// Sets the governance configuration including the list of authorized governors,
+    /// minimum approvals required, and timelock delay. Can only be called by the
+    /// contract admin on an uninitialized governance.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `governors` - List of authorized governor addresses
+    /// * `required_approvals` - Minimum number of approvals required (must be 1 ≤ n ≤ governors.len())
+    /// * `timelock_delay` - Timelock delay in seconds (minimum 3600)
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(ContractError::AlreadyInitialized)` if governance already configured
+    /// * `Err(ContractError::Unauthorized)` if parameters are invalid
+    pub fn initialize_governance(
+        env: Env,
+        governors: Vec<Address>,
+        required_approvals: u32,
+        timelock_delay: u64,
+    ) -> Result<(), ContractError> {
+        let inst = env.storage().instance();
+        let admin: Address = inst.get(&KEY_ADMIN).unwrap();
+        admin.require_auth();
+
+        if inst.has(&KEY_GOVERNANCE_CONFIG) {
+            return Err(ContractError::AlreadyInitialized);
+        }
+
+        validate_governance_config(required_approvals, governors.len(), timelock_delay)?;
+
+        let config = GovernanceConfig {
+            governors,
+            required_approvals,
+            timelock_delay,
+        };
+        inst.set(&KEY_GOVERNANCE_CONFIG, &config);
+        inst.set(&KEY_GOVERNANCE_NONCE, &0u32);
+
+        env.events().publish(
+            ("governance", "config_updated"),
+            EventGovernanceConfigUpdated {
+                required_approvals,
+                governor_count: config.governors.len(),
+                timelock_delay,
+            },
+        );
+        Ok(())
+    }
+
+    /// Proposes a platform configuration update.
+    ///
+    /// Creates a new governance proposal to change the platform fee address
+    /// and/or fee basis points. The proposer must be a designated governor.
+    /// Voting lasts for 7 days from creation.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `proposer` - The governor creating the proposal (must authorize)
+    /// * `platform_address` - Proposed new platform fee recipient address
+    /// * `platform_fee_bps` - Proposed new platform fee in basis points
+    ///
+    /// # Returns
+    /// * `Ok(u32)` - The proposal nonce on success
+    /// * `Err(ContractError::GovernanceNotGovernor)` if proposer is not a governor
+    pub fn propose_platform_update(
+        env: Env,
+        proposer: Address,
+        platform_address: Address,
+        platform_fee_bps: u32,
+    ) -> Result<u32, ContractError> {
+        proposer.require_auth();
+        let inst = env.storage().instance();
+
+        let config: GovernanceConfig = inst
+            .get(&KEY_GOVERNANCE_CONFIG)
+            .ok_or(ContractError::Unauthorized)?;
+
+        if !config.governors.contains(&proposer) {
+            return Err(ContractError::GovernanceNotGovernor);
+        }
+
+        validate_fee_bps(platform_fee_bps)?;
+
+        let nonce: u32 = inst.get(&KEY_GOVERNANCE_NONCE).unwrap_or(0);
+        let new_nonce = nonce + 1;
+        let now = env.ledger().timestamp();
+
+        let proposal = GovernanceProposal {
+            nonce: new_nonce,
+            proposer: proposer.clone(),
+            platform_address: platform_address.clone(),
+            platform_fee_bps,
+            created_at: now,
+            voting_ends_at: now + 604800, // 7 days
+            approvals: 0,
+            timelock_until: 0,
+            executed: false,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::GovernanceProposal(new_nonce), &proposal);
+        inst.set(&KEY_GOVERNANCE_NONCE, &new_nonce);
+
+        env.events().publish(
+            ("governance", "proposed"),
+            EventGovernanceProposed {
+                nonce: new_nonce,
+                proposer,
+                platform_address,
+                platform_fee_bps,
+                voting_ends_at: proposal.voting_ends_at,
+            },
+        );
+        Ok(new_nonce)
+    }
+
+    /// Votes on a governance proposal.
+    ///
+    /// Governors cast approval votes on a pending proposal. When the required
+    /// number of approvals is met, the proposal enters the timelock period.
+    /// Voting is idempotent — a second vote from the same governor is a no-op.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `governor` - The governor casting the vote (must authorize)
+    /// * `proposal_nonce` - Nonce of the proposal to vote on
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(ContractError::GovernanceProposalNotFound)` if proposal doesn't exist
+    /// * `Err(ContractError::GovernanceVotingEnded)` if voting period has ended
+    /// * `Err(ContractError::GovernanceAlreadyVoted)` if already voted
+    /// * `Err(ContractError::GovernanceNotGovernor)` if governor is not a governor
+    pub fn vote_on_proposal(
+        env: Env,
+        governor: Address,
+        proposal_nonce: u32,
+    ) -> Result<(), ContractError> {
+        governor.require_auth();
+        let inst = env.storage().instance();
+
+        let config: GovernanceConfig = inst
+            .get(&KEY_GOVERNANCE_CONFIG)
+            .ok_or(ContractError::Unauthorized)?;
+
+        if !config.governors.contains(&governor) {
+            return Err(ContractError::GovernanceNotGovernor);
+        }
+
+        let mut proposal: GovernanceProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::GovernanceProposal(proposal_nonce))
+            .ok_or(ContractError::GovernanceProposalNotFound)?;
+
+        if proposal.executed {
+            return Err(ContractError::GovernanceAlreadyExecuted);
+        }
+
+        if env.ledger().timestamp() > proposal.voting_ends_at {
+            return Err(ContractError::GovernanceVotingEnded);
+        }
+
+        // Idempotency check
+        let vote_key = DataKey::GovernanceVote(proposal_nonce, governor.clone());
+        let has_voted: bool = env
+            .storage()
+            .persistent()
+            .get(&vote_key)
+            .unwrap_or(false);
+        if has_voted {
+            return Err(ContractError::GovernanceAlreadyVoted);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&vote_key, &true);
+
+        proposal.approvals = proposal
+            .approvals
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+
+        // If threshold met, start timelock
+        if proposal.approvals >= config.required_approvals && proposal.timelock_until == 0 {
+            proposal.timelock_until =
+                env.ledger().timestamp() + config.timelock_delay;
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::GovernanceProposal(proposal_nonce), &proposal);
+
+        env.events().publish(
+            ("governance", "voted"),
+            EventGovernanceVoted {
+                nonce: proposal_nonce,
+                governor,
+                approvals: proposal.approvals,
+                required: config.required_approvals,
+            },
+        );
+        Ok(())
+    }
+
+    /// Executes a governance proposal after voting and timelock have completed.
+    ///
+    /// Updates the platform configuration to the proposed values. Anyone may
+    /// call this once the timelock has expired.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `proposal_nonce` - Nonce of the proposal to execute
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(ContractError::GovernanceProposalNotFound)` if proposal doesn't exist
+    /// * `Err(ContractError::GovernanceAlreadyExecuted)` if already executed
+    /// * `Err(ContractError::GovernanceNotEnoughApprovals)` if threshold not met
+    /// * `Err(ContractError::GovernanceTimelockPending)` if timelock not expired
+    pub fn execute_proposal(env: Env, proposal_nonce: u32) -> Result<(), ContractError> {
+        let inst = env.storage().instance();
+
+        let config: GovernanceConfig = inst
+            .get(&KEY_GOVERNANCE_CONFIG)
+            .ok_or(ContractError::Unauthorized)?;
+
+        let mut proposal: GovernanceProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::GovernanceProposal(proposal_nonce))
+            .ok_or(ContractError::GovernanceProposalNotFound)?;
+
+        if proposal.executed {
+            return Err(ContractError::GovernanceAlreadyExecuted);
+        }
+
+        if proposal.approvals < config.required_approvals {
+            return Err(ContractError::GovernanceNotEnoughApprovals);
+        }
+
+        if env.ledger().timestamp() < proposal.timelock_until {
+            return Err(ContractError::GovernanceTimelockPending);
+        }
+
+        // Execute: update platform config
+        let platform = PlatformConfig {
+            address: proposal.platform_address.clone(),
+            fee_bps: proposal.platform_fee_bps,
+        };
+        inst.set(&KEY_PLATFORM, &platform);
+
+        proposal.executed = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::GovernanceProposal(proposal_nonce), &proposal);
+
+        env.events().publish(
+            ("governance", "executed"),
+            EventGovernanceExecuted {
+                nonce: proposal_nonce,
+                platform_address: proposal.platform_address,
+                platform_fee_bps: proposal.platform_fee_bps,
+            },
+        );
+        Ok(())
+    }
+
+    /// Emergency pauses all contract operations via multi-sig governance.
+    ///
+    /// Requires a majority (>50%) of governors to approve within a single
+    /// transaction window. Sets the emergency pause flag which blocks all
+    /// mutative operations.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `governor` - The governor requesting the pause (must authorize)
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(ContractError::GovernanceNotGovernor)` if caller is not a governor
+    pub fn emergency_pause(env: Env, governor: Address) -> Result<(), ContractError> {
+        governor.require_auth();
+        let inst = env.storage().instance();
+
+        let config: GovernanceConfig = inst
+            .get(&KEY_GOVERNANCE_CONFIG)
+            .ok_or(ContractError::Unauthorized)?;
+
+        if !config.governors.contains(&governor) {
+            return Err(ContractError::GovernanceNotGovernor);
+        }
+
+        // Track approvals for this emergency pause
+        let approval_key = DataKey::EmergencyPauseApproval(governor.clone());
+        let already_approved: bool = env
+            .storage()
+            .persistent()
+            .get(&approval_key)
+            .unwrap_or(false);
+        if already_approved {
+            return Ok(());
+        }
+
+        env.storage()
+            .persistent()
+            .set(&approval_key, &true);
+
+        let count: u32 = inst.get(&DataKey::EmergencyPauseApprovals).unwrap_or(0);
+        let new_count = count + 1;
+        inst.set(&DataKey::EmergencyPauseApprovals, &new_count);
+
+        // Trigger pause when majority approves
+        if new_count > config.governors.len() / 2 {
+            inst.set(&KEY_EMERGENCY_PAUSE, &true);
+            env.events().publish(
+                ("governance", "emergency_paused"),
+                EventGovernanceEmergencyPaused {
+                    timestamp: env.ledger().timestamp(),
+                },
+            );
+        }
+        Ok(())
+    }
+
+    /// Resumes contract operations after emergency pause via multi-sig governance.
+    ///
+    /// Requires a majority (>50%) of governors to approve.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `governor` - The governor requesting the resume (must authorize)
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(ContractError::GovernanceNotGovernor)` if caller is not a governor
+    pub fn emergency_resume(env: Env, governor: Address) -> Result<(), ContractError> {
+        governor.require_auth();
+        let inst = env.storage().instance();
+
+        let config: GovernanceConfig = inst
+            .get(&KEY_GOVERNANCE_CONFIG)
+            .ok_or(ContractError::Unauthorized)?;
+
+        if !config.governors.contains(&governor) {
+            return Err(ContractError::GovernanceNotGovernor);
+        }
+
+        let approval_key = DataKey::EmergencyPauseApproval(governor.clone());
+        let already_approved: bool = env
+            .storage()
+            .persistent()
+            .get(&approval_key)
+            .unwrap_or(false);
+        if already_approved {
+            return Ok(());
+        }
+
+        env.storage()
+            .persistent()
+            .set(&approval_key, &true);
+
+        let count: u32 = inst.get(&DataKey::EmergencyPauseApprovals).unwrap_or(0);
+        let new_count = count + 1;
+        inst.set(&DataKey::EmergencyPauseApprovals, &new_count);
+
+        // Resume when majority approves
+        if new_count > config.governors.len() / 2 {
+            inst.set(&KEY_EMERGENCY_PAUSE, &false);
+            env.events().publish(
+                ("governance", "emergency_resumed"),
+                EventGovernanceEmergencyResumed {
+                    timestamp: env.ledger().timestamp(),
+                },
+            );
+        }
+        Ok(())
+    }
+
+    /// Updates the governance configuration.
+    ///
+    /// Can only be called by the contract admin. Enables changing the governor
+    /// set, required approvals, and timelock delay after initial setup.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `governors` - New list of authorized governor addresses
+    /// * `required_approvals` - New minimum approvals required
+    /// * `timelock_delay` - New timelock delay in seconds
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(ContractError::Unauthorized)` if parameters are invalid
+    pub fn update_governance_config(
+        env: Env,
+        governors: Vec<Address>,
+        required_approvals: u32,
+        timelock_delay: u64,
+    ) -> Result<(), ContractError> {
+        let inst = env.storage().instance();
+        let admin: Address = inst.get(&KEY_ADMIN).unwrap();
+        admin.require_auth();
+
+        validate_governance_config(required_approvals, governors.len(), timelock_delay)?;
+
+        let config = GovernanceConfig {
+            governors,
+            required_approvals,
+            timelock_delay,
+        };
+        inst.set(&KEY_GOVERNANCE_CONFIG, &config);
+
+        env.events().publish(
+            ("governance", "config_updated"),
+            EventGovernanceConfigUpdated {
+                required_approvals,
+                governor_count: config.governors.len(),
+                timelock_delay,
+            },
+        );
+        Ok(())
+    }
+
+    /// Returns the current governance configuration.
+    pub fn get_governance_config(env: Env) -> Option<GovernanceConfig> {
+        env.storage().instance().get(&KEY_GOVERNANCE_CONFIG)
+    }
+
+    /// Returns a governance proposal by nonce.
+    pub fn get_proposal(env: Env, proposal_nonce: u32) -> Option<GovernanceProposal> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::GovernanceProposal(proposal_nonce))
+    }
+
+    /// Returns whether the contract is emergency paused by governance.
+    pub fn is_emergency_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&KEY_EMERGENCY_PAUSE)
+            .unwrap_or(false)
     }
 }
 

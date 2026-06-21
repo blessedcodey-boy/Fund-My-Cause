@@ -2,7 +2,7 @@
 ///
 /// This module contains all `#[contracttype]` definitions including enums and structs
 /// used throughout the contract for state management and function signatures.
-use soroban_sdk::{contracttype, Address, String};
+use soroban_sdk::{contracttype, Address, String, Vec};
 
 /// Campaign status enumeration.
 ///
@@ -391,6 +391,47 @@ pub struct InsuranceConfig {
     pub provider: Address,
     /// Whether insurance is enabled for this campaign
     pub enabled: bool,
+}
+
+/// Multi-signature governance configuration.
+///
+/// Defines the set of authorized governors, minimum approvals required
+/// for proposals, and the timelock delay before execution.
+#[derive(Clone)]
+#[contracttype]
+pub struct GovernanceConfig {
+    /// List of authorized governor addresses
+    pub governors: Vec<soroban_sdk::Address>,
+    /// Minimum number of approvals required to pass a proposal
+    pub required_approvals: u32,
+    /// Timelock delay in seconds before proposal execution
+    pub timelock_delay: u64,
+}
+
+/// Governance proposal for platform configuration changes.
+///
+/// Tracks a proposed platform config update with voting and timelock status.
+#[derive(Clone)]
+#[contracttype]
+pub struct GovernanceProposal {
+    /// Unique proposal nonce/ID
+    pub nonce: u32,
+    /// Address of the governor who created the proposal
+    pub proposer: soroban_sdk::Address,
+    /// Proposed platform fee recipient address
+    pub platform_address: soroban_sdk::Address,
+    /// Proposed platform fee in basis points
+    pub platform_fee_bps: u32,
+    /// Timestamp when the proposal was created
+    pub created_at: u64,
+    /// Timestamp when voting ends
+    pub voting_ends_at: u64,
+    /// Number of approvals received
+    pub approvals: u32,
+    /// Timestamp when the timelock expires (0 if not yet met threshold)
+    pub timelock_until: u64,
+    /// Whether the proposal has been executed
+    pub executed: bool,
 }
 
 // ── Missing types referenced in lib.rs ───────────────────────────────────────
@@ -1309,5 +1350,72 @@ pub struct EventPerfAlert {
     pub function_name: String,
     pub duration_ms: u64,
     pub threshold_ms: u64,
+    pub timestamp: u64,
+}
+
+// ── Governance Events (Multi-Sig) ────────────────────────────────────────────
+
+/// Emitted when a governance proposal is created.
+///
+/// Event topic: `("governance", "proposed")`
+#[derive(Clone)]
+#[contracttype]
+pub struct EventGovernanceProposed {
+    pub nonce: u32,
+    pub proposer: soroban_sdk::Address,
+    pub platform_address: soroban_sdk::Address,
+    pub platform_fee_bps: u32,
+    pub voting_ends_at: u64,
+}
+
+/// Emitted when a governance vote is cast.
+///
+/// Event topic: `("governance", "voted")`
+#[derive(Clone)]
+#[contracttype]
+pub struct EventGovernanceVoted {
+    pub nonce: u32,
+    pub governor: soroban_sdk::Address,
+    pub approvals: u32,
+    pub required: u32,
+}
+
+/// Emitted when a governance proposal is executed after timelock.
+///
+/// Event topic: `("governance", "executed")`
+#[derive(Clone)]
+#[contracttype]
+pub struct EventGovernanceExecuted {
+    pub nonce: u32,
+    pub platform_address: soroban_sdk::Address,
+    pub platform_fee_bps: u32,
+}
+
+/// Emitted when governance configuration is updated.
+///
+/// Event topic: `("governance", "config_updated")`
+#[derive(Clone)]
+#[contracttype]
+pub struct EventGovernanceConfigUpdated {
+    pub required_approvals: u32,
+    pub governor_count: u32,
+    pub timelock_delay: u64,
+}
+
+/// Emitted when the contract is emergency paused by governance.
+///
+/// Event topic: `("governance", "emergency_paused")`
+#[derive(Clone)]
+#[contracttype]
+pub struct EventGovernanceEmergencyPaused {
+    pub timestamp: u64,
+}
+
+/// Emitted when the contract is resumed from emergency pause by governance.
+///
+/// Event topic: `("governance", "emergency_resumed")`
+#[derive(Clone)]
+#[contracttype]
+pub struct EventGovernanceEmergencyResumed {
     pub timestamp: u64,
 }
