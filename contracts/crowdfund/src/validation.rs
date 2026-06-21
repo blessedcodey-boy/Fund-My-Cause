@@ -336,6 +336,34 @@ pub fn validate_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
     Ok(())
 }
 
+/// Validates governance configuration parameters.
+///
+/// # Arguments
+/// * `required_approvals` - Minimum number of approvals required
+/// * `governor_count` - Total number of governors
+/// * `timelock_delay` - Timelock delay in seconds
+///
+/// # Returns
+/// * `Ok(())` if configuration is valid
+/// * `Err(ContractError::Unauthorized)` if parameters are invalid
+pub fn validate_governance_config(
+    required_approvals: u32,
+    governor_count: u32,
+    timelock_delay: u64,
+) -> Result<(), ContractError> {
+    if required_approvals == 0 || required_approvals > governor_count {
+        return Err(ContractError::Unauthorized);
+    }
+    if governor_count == 0 {
+        return Err(ContractError::Unauthorized);
+    }
+    if timelock_delay < 3600 {
+        // Minimum 1 hour timelock
+        return Err(ContractError::Unauthorized);
+    }
+    Ok(())
+}
+
 /// Validates that a goal value will not cause overflow when used in arithmetic.
 ///
 /// Specifically checks that `goal` fits safely within the positive half of `i128`
